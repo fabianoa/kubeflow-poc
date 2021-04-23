@@ -9,7 +9,6 @@ Para instalarmos os componentes do MLFlow no kubernetes precisamos executar os s
 
 ```
 > kubectl create namespace mlflow
-
 ```
 1.2 Criando pod para MLflow Postgres:
 
@@ -87,6 +86,11 @@ spec:
  selector:
    app: mlflow-postgres
 EOF
+```
+
+Você pode executar também:
+```
+> kubectl apply -f mlflow-postgres.yaml
 ```
 
 1.3 Criando pod para o Minio (Artifact Storage) do MLFlow:
@@ -173,7 +177,11 @@ spec:
    requests:
      storage: 100Mi
 EOF
+```
 
+Você pode executar também:
+```
+> kubectl apply -f mlflow-minio.yaml
 ```
 
 1.4 Criando pod para o MLFLow Server:
@@ -251,7 +259,11 @@ spec:
            servicePort: 5000
          path: /
 EOF
+```
 
+Você pode executar também:
+```
+> kubectl apply -f mlflow-server.yaml
 ```
 
 1.5 Acessando as UI do MLFlow e Minio
@@ -271,7 +283,6 @@ Outra forma de expor é executando o comando kubectl port-forward, conforme exem
 > kubectl port-forward -n mlflow  service/mlflow-minio-service 8080:9000 --address 0.0.0.0 &!
 
 > kubectl port-forward -n mlflow  service/mlflow-service 8443:5000 --address 0.0.0.0 &!
-
 ```
 
 1.5 Criando um bucket para ser root do Artifact Storage 
@@ -284,3 +295,72 @@ Acesse http://mlflow-minio.local , se autentique e crie um bucket com o nome *ml
 ```
 > kubectl create secret generic aws-secret --from-literal=AWS_ACCESS_KEY_ID=minio --from-literal=AWS_SECRET_ACCESS_KEY=minio123 -n <user_namespace>
 ```
+
+1.7 Abra o notebook e execute os parâgrafos:
+
+Lembre-se de alterar configurações de namespace e proxy que estão ndefinidas no código.
+
+
+* Caso ocorra o erro abaixo, será necessário conceder autorização 
+
+```
+ApiException: (409)
+Reason: Conflict
+HTTP response headers: HTTPHeaderDict({'content-type': 'application/json', 'trailer': 'Grpc-Trailer-Content-Type', 'date': 'Fri, 23 Apr 2021 18:08:04 GMT', 'x-envoy-upstream-service-time': '6', 'server': 'envoy', 'transfer-encoding': 'chunked'})
+HTTP response body: {"error":"Failed to authorize with API resource references: Bad request.: BadRequestError: Request header error: there is no user identity header.: Request header error: there is no user identity header.","message":"Failed to authorize with API resource references: Bad request.: BadRequestError: Request header error: there is no user identity header.: Request header error: there is no user identity header.","code":10,"details":[{"@type":"type.googleapis.com/api.Error","error_message":"Request header error: there is no user identity header.","error_details":"Failed to authorize with API resource references: Bad request.: BadRequestError: Request header error: there is no user identity header.: Request header error: there is no user identity header."}]}
+```
+Será necessario executar os comando abaixo para criar ServiceRoleBinding e EnvoyFilter para o namespace/usuario/notebook. Para isto altere os atributos 
+ServiceRoleBinding/name, ServiceRoleBinding/subjects/properties/source.principal, EnvoyFilter/metadata/namespace,request_headers_to_add/header/value e notebook-name 
+
+```
+cat <<EOF | kubectl apply -f -
+apiVersion: rbac.istio.io/v1alpha1
+kind: ServiceRoleBinding
+metadata:
+  name: bind-ml-pipeline-nb-fabiano-alencar
+  namespace: kubeflow
+spec:
+  roleRef:
+    kind: ServiceRole
+    name: ml-pipeline-services
+  subjects:
+  - properties:
+      source.principal: cluster.local/ns/fabiano-alencar/sa/default-editor
+EOF
+
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: add-header-server1
+  namespace: fabiano-alencar
+spec:
+  configPatches:
+  - applyTo: VIRTUAL_HOST
+    match:
+      context: SIDECAR_OUTBOUND
+      routeConfiguration:
+        vhost:
+          name: ml-pipeline.kubeflow.svc.cluster.local:8888
+          route:
+            name: default
+    patch:
+      operation: MERGE
+      value:
+        request_headers_to_add:
+        - append: true
+          header:
+            key: kubeflow-userid
+            value: fabiano.alencar@dataprev.gov.br
+  workloadSelector:
+    labels:
+      notebook-name: server-elyra
+EOF
+
+```
+
+2. Referências
+
+* https://towardsdatascience.com/mlflow-part-2-deploying-a-tracking-server-to-minikube-a2d6671e6455
+
+* https://github.com/felix-exel/kubeflow-pipeline
