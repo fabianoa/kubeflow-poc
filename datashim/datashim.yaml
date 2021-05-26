@@ -1,0 +1,29 @@
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Secret
+metadata:
+  name: s3secret
+  namespace: fabiano-alencar
+stringData:
+  accessKeyID: "minio"
+  secretAccessKey: "minio123"
+EOF
+
+
+cat <<EOF | kubectl apply -f -
+apiVersion: com.ie.ibm.hpsys/v1alpha1
+kind: Dataset
+metadata:
+  name: example-dataset
+  namespace: fabiano-alencar
+spec:
+  local:
+    type: "COS"
+    secret-name: "s3secret" #see s3-secrets.yaml for an example
+    secret-namespace: "fabiano-alencar" #optional if the secret is in the same ns as dataset
+    endpoint: "http://mlflow-minio-service.mlflow:9000"
+    bucket: "test"
+    readonly: "true" # default is false
+    provision: "true" # DLF will allocate bucket on the COS if it doesn't exist [Default: false]
+    region: "" #it can be empty
+EOF
